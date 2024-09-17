@@ -71,3 +71,35 @@ class SimpleFFNNTrainer:
         self.model.load_state_dict(torch.load(filepath))
         self.model.to(self.device)
     
+    if __name__ == '__main__':
+        import argparse
+        from sklearn.model_selection import train_test_split
+
+        parser = argparse.ArgumentParser(description='Train a simple feedforward neural network.')
+        parser.add_argument('--dataset', type=str, required=True, help='Path to the dataset.')
+        parser.add_argument('--save_model_path', type=str, required=True, help='Path to save the trained model.')
+        parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train.')
+        parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate for training.')
+        parser.add_argument('--val_split', type=float, default=0.1, help='Validation split ratio.')
+
+        args = parser.parse_args()
+
+        # Load the dataset
+        dataset = torch.load(args.dataset)  # Assuming the dataset is a PyTorch tensor or can be loaded with torch.load
+
+        # Split the dataset into training and validation sets
+        train_data, val_data = train_test_split(dataset, test_size=args.val_split)
+
+        # Initialize the trainer
+        trainer = SimpleFFNNTrainer(
+            train_data=train_data,
+            val_data=val_data,
+            epochs=args.epochs,
+            learning_rate=args.learning_rate
+        )
+
+        # Train the model
+        trainer.train()
+
+        # Save the trained model
+        trainer.save_model(args.save_model_path)

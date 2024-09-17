@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.optim
 
-
 class SimpleFFNN(nn.Module):
     def __init__(self, input_size, hidden_sizes, output_size):
         super(SimpleFFNN, self).__init__()
@@ -29,15 +28,20 @@ class SimpleFFNN(nn.Module):
 
 
 if __name__=='__main__':
-    input_size = 2
-    hidden_sizes = [10,20,30]
-    output_size = 1
+    import argparse
 
-    model = SimpleFFNN(input_size, hidden_sizes, output_size)
+    parser = argparse.ArgumentParser(description='Simple Feedforward Neural Network')
+    parser.add_argument('--input_size', type=int, default=2, help='Size of the input layer')
+    parser.add_argument('--hidden_sizes', type=int, nargs='+', default=[10, 20, 30], help='Sizes of the hidden layers')
+    parser.add_argument('--output_size', type=int, default=1, help='Size of the output layer')
+
+    args = parser.parse_args()
+
+    model = SimpleFFNN(args.input_size, args.hidden_sizes, args.output_size)
 
     print(model)
 
-    X = torch.randn(5, input_size)
+    X = torch.randn(5, args.input_size)
     output = model(X)
 
     print(output)
