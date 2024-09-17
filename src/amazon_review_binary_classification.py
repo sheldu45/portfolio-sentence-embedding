@@ -9,7 +9,7 @@ import umap
 
 dataset = load_dataset("amazon_polarity",split="train")
 
-limit = 1000
+limit = 10000
 corpus=dataset.shuffle(seed=42)[:limit]['content']
 
 model_path="sentence-transformers/all-MiniLM-L6-v2"
