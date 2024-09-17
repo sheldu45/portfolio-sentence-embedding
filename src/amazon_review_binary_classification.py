@@ -9,26 +9,31 @@ import umap
 
 class AmazonReviewBinaryClassification:
 
-    def __init__(self, model_path="sentence-transformers/all-MiniLM-L6-v2", dataset_name="amazon_polarity", limit=10000):
+    def __init__(self, model_path="sentence-transformers/all-MiniLM-L6-v2", dataset_name="amazon_polarity", n_samples_dataset=10000):
         self.model_path = model_path
         self.dataset_name = dataset_name
-        self.limit = limit
+        self.n_samples_dataset = n_samples_dataset
         self.model = SentenceTransformer(self.model_path)
         self.corpus = None
+        self.corpus_labels = None
         self.corpus_embeddings = None
-        self.X = None
 
     def load_data(self, split):
         dataset = load_dataset(self.dataset_name, split=split)
-        self.corpus = dataset.shuffle(seed=42)[:self.limit]['content']
+        shuffled_dataset = dataset.shuffle(seed=42)
+        self.corpus = shuffled_dataset[:self.n_samples_dataset]['content']
+        self.corpus_labels = shuffled_dataset[:self.n_samples_dataset]['label']
         self.corpus_embeddings = self.model.encode(self.corpus)
+        self.embed_size = self.corpus_embeddings.shape[1]
 
     def save_data(self, file_path):
-        tensor = torch.tensor(self.corpus_embeddings)
-        torch.save(tensor, file_path)
+        tensor = self.to_torch_tensor(self.corpus_embeddings)
+        torch.save(tensor, file_path + "_embeds.pt")
+        tensor = self.to_torch_tensor(self.corpus_labels)
+        torch.save(tensor, file_path + "_labels.pt")
         
-    def to_torch_tensor(self):
-        return torch.tensor(self.corpus_embeddings)
+    def to_torch_tensor(self, data):
+        return torch.tensor(data)
 
     def cluster_data(self, n_clusters=2, random_state=0):
         kmeans = KMeans(n_clusters=n_clusters, random_state=random_state).fit(self.corpus_embeddings)
@@ -59,13 +64,49 @@ class AmazonReviewBinaryClassification:
         plt.close()
 
 if __name__ == "__main__":
-    classifier = AmazonReviewBinaryClassification(limit=100)
+    classifier = AmazonReviewBinaryClassification(n_samples_dataset=100)
     classifier.load_data(split="train")
-    classifier.save_data("corpus_embeddings.pt")
-    kmeans, centers = classifier.cluster_data()
-    classifier.visualize_clusters(kmeans, centers)
+    classifier.save_data("corpus")
 
+    ## Cluster data using kmeans
+    # kmeans, centers = classifier.cluster_data()
+    # classifier.visualize_clusters(kmeans, centers)
 
+    ## Create our simple feed forward neural network
+    from simple_ffnn import SimpleFFNN
+
+    input_size = classifier.embed_size
+    output_size = 1 ## Binary classification
+    ffnn = SimpleFFNN(input_size, [10,10], output_size)
+
+    ## Create trainer for the neural network
+    from simple_ffnn_trainer import SimpleFFNNTrainer
+    import torch.nn as nn
+    import torch.optim as optim
+    from torch import reshape
+    
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(ffnn.parameters(), lr=0.001)
+    
+    ffnn_trainer = SimpleFFNNTrainer(ffnn, criterion, optimizer, device='cpu')
+    ## Create dataloaders using amazon polarity data
+    from torch.utils.data import DataLoader
+
+    input_tensor = classifier.to_torch_tensor(classifier.corpus_embeddings)
+    output_tensor = classifier.to_torch_tensor(classifier.corpus_labels)
+    output_tensor = torch.reshape(output_tensor, (output_tensor.shape[0], 1))
+
+    print(input_tensor)
+    print(input_tensor.shape)
+    print(output_tensor)
+    print(output_tensor.shape)
+
+    # tensor_dataset_output = classifier.to_torch_tensor(classifier.corpus_labels)
+    train_loader = DataLoader((input_tensor, output_tensor), batch_size=32, shuffle=True)
+
+    for batch_idx, (inputs, targets) in enumerate(train_loader):
+        print(batch_idx, inputs, targets)
+    
 
 '''
 dataset = load_dataset("amazon_polarity",split="train")

@@ -1,7 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.optim
-
 
 class SimpleFFNNTrainer:
     def __init__(self, model, criterion, optimizer, device='cpu'):
@@ -36,9 +34,9 @@ class SimpleFFNNTrainer:
                 running_loss += loss.item()
 
                 if batch_idx % log_interval == 0:
-                    print(f'Epoch [{epoch+1}/{epochs}], 
-                    Step [{batch_idx}/{len(train_loader)}], 
-                    Loss: {loss.item():.4f}')
+                    print(f'Epoch [{epoch+1}/{epochs}],'\
+                          f'Step [{batch_idx}/{len(train_loader)}],'\
+                          f'Loss: {loss.item():.4f}')
 
             avg_loss = running_loss / len(train_loader)
             print(f'Epoch [{epoch+1}/{epochs}], Average Loss: {avg_loss:.4f}')
