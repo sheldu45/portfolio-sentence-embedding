@@ -2,3 +2,4 @@ venv/
 cluster_visualization.png
 *.pt
 __pycache__
+data/

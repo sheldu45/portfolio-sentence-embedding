@@ -11,7 +11,7 @@ class SimpleFFNNTrainer:
         self.model.to(self.device) ## Put model on device to use
         
     def train(self, train_loader, val_loader=None, epochs=10, log_interval=1):
-
+        print("################ TRAINING STARTED ################ ")
         for epoch in range(epochs):
             self.model.train() ## Put model in training mode
             running_loss = 0.0
@@ -25,6 +25,7 @@ class SimpleFFNNTrainer:
 
                 ## Forward pass
                 outputs = self.model(inputs)
+
                 loss = self.criterion(outputs, targets)
 
                 ## Backward pass and weight updating
@@ -45,6 +46,8 @@ class SimpleFFNNTrainer:
             if val_loader is not None:
                 val_loss = self.evaluate(val_loader)
                 print(f'Validation Loss after Epoch {epoch+1}: {val_loss:.4f}')
+
+        print("################ TRAINING ENDED ################ ")
 
     def evaluate(self, val_loader):
         self.model.eval()

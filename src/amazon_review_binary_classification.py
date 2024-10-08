@@ -21,6 +21,7 @@ class AmazonReviewBinaryClassification:
     def load_data(self, split):
         dataset = load_dataset(self.dataset_name, split=split)
         shuffled_dataset = dataset.shuffle(seed=42)
+        print(f"TOTAL DATASET LEN: {len(dataset)}")
         self.corpus = shuffled_dataset[:self.n_samples_dataset]['content']
         self.corpus_labels = shuffled_dataset[:self.n_samples_dataset]['label']
         self.corpus_embeddings = self.model.encode(self.corpus)
@@ -64,7 +65,7 @@ class AmazonReviewBinaryClassification:
         plt.close()
 
 if __name__ == "__main__":
-    classifier = AmazonReviewBinaryClassification(n_samples_dataset=100)
+    classifier = AmazonReviewBinaryClassification(n_samples_dataset=10000)
     classifier.load_data(split="train")
     classifier.save_data("corpus")
 
@@ -90,24 +91,43 @@ if __name__ == "__main__":
     
     ffnn_trainer = SimpleFFNNTrainer(ffnn, criterion, optimizer, device='cpu')
     ## Create dataloaders using amazon polarity data
-    from torch.utils.data import DataLoader
+    from torch.utils.data import Dataset, DataLoader
 
     input_tensor = classifier.to_torch_tensor(classifier.corpus_embeddings)
     output_tensor = classifier.to_torch_tensor(classifier.corpus_labels)
     output_tensor = torch.reshape(output_tensor, (output_tensor.shape[0], 1))
 
-    print(input_tensor)
-    print(input_tensor.shape)
-    print(output_tensor)
-    print(output_tensor.shape)
+    print(f"input tensor shape: {input_tensor.shape}")
+    print(f"output tensor shape: {output_tensor.shape}")
 
+    class CustomDataset(Dataset):
+        def __init__(self, inputs, targets):
+            self.inputs = inputs
+            self.targets = targets
+
+        def __len__(self):
+            return len(self.inputs)
+
+        def __getitem__(self, idx):
+            input_data = self.inputs[idx]
+            target_data = self.targets[idx]
+            return input_data, target_data
+
+    output_tensor = output_tensor.float()
+    dataset = CustomDataset(input_tensor, output_tensor)
     # tensor_dataset_output = classifier.to_torch_tensor(classifier.corpus_labels)
-    train_loader = DataLoader((input_tensor, output_tensor), batch_size=32, shuffle=True)
+    # train_loader = DataLoader((input_tensor, output_tensor), batch_size=32, shuffle=True)
+    train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
     for batch_idx, (inputs, targets) in enumerate(train_loader):
-        print(batch_idx, inputs, targets)
-    
+        print(f"##### BATCH #{batch_idx} #####")
+        print("Input data (sentence embedding):")
+        print(inputs)
+        print("Target data (label):")
+        print(targets)
 
+    ffnn_trainer.train(train_loader)
+        
 '''
 dataset = load_dataset("amazon_polarity",split="train")
 
