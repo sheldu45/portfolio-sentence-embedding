@@ -36,8 +36,8 @@ class AmazonReviewBinaryClassification:
         Args:
             model_path (str): Path to the sentence transformer model.
             dataset_name (str): Name of the dataset to load.
-            n_samples_dataset (int): Number of samples to use from the dataset.
-            train_ratio (float[]): Ratio of train, validation and test samples.
+            train_ratio (list): List containing the ratio of train, validation, and test samples.
+            n_samples_dataset (int, optional): Number of samples to use from the dataset. Defaults to None.
         """
         # Path to the sentence transformer model
         self.model_path = model_path
@@ -233,7 +233,7 @@ class AmazonReviewBinaryClassification:
 
 if __name__ == "__main__":
     # Initialize the classifier with a subset of the dataset
-    classifier = AmazonReviewBinaryClassification(n_samples_dataset=1000)
+    classifier = AmazonReviewBinaryClassification(n_samples_dataset=10000)
     # classifier = AmazonReviewBinaryClassification()
     
     # Load the training data
@@ -278,42 +278,17 @@ if __name__ == "__main__":
     print(f"Train input tensor shape: {train_input_tensor.shape}")
     print(f"Train output tensor shape: {train_output_tensor.shape}")
     print(f"Val input tensor shape: {val_input_tensor.shape}")
-    print(f"Val output tensor shape: {val_output_tensor.shape}")
-
-    # Define a custom dataset class for loading inputs and targets
-    class CustomDataset(Dataset):
-        """Custom dataset class for loading inputs and targets."""
-        
-        def __init__(self, inputs, targets):
-            """
-            Initializes the dataset with inputs and targets.
-
-            Args:
-                inputs: Input data.
-                targets: Target data.
-            """
-            self.inputs = inputs
-            self.targets = targets
-
-        def __len__(self):
-            """Returns the size of the dataset."""
-            return len(self.inputs)
-
-        def __getitem__(self, idx):
-            """Retrieves an item from the dataset."""
-            input_data = self.inputs[idx]
-            target_data = self.targets[idx]
-            return input_data, target_data
+    print(f"Val output tensor shape: {val_output_tensor.shape}") 
 
     # Convert the output tensor to float for compatibility with the loss function
     train_output_tensor = train_output_tensor.float()
     val_output_tensor = val_output_tensor.float()
     
     # Create a dataset and dataloader for batching the data
-    train_dataset = CustomDataset(train_input_tensor, train_output_tensor)
+    train_dataset = list(zip(train_input_tensor, train_output_tensor))
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 
-    val_dataset = CustomDataset(val_input_tensor, val_output_tensor)
+    val_dataset = list(zip(val_input_tensor, val_output_tensor))
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True)
 
     # Iterate over the batches and print the input and target data for each batch
