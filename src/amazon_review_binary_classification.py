@@ -29,7 +29,7 @@ class AmazonReviewBinaryClassification:
         embed_size (int): Size of the embeddings.
     """
 
-    def __init__(self, model_path="sentence-transformers/all-MiniLM-L6-v2", dataset_name="amazon_polarity", ratio_train_val=0.95,  n_samples_dataset=None):
+    def __init__(self, model_path="sentence-transformers/all-MiniLM-L6-v2", dataset_name="amazon_polarity", train_ratio=[0.85,0.05,0.1], n_samples_dataset=None):
         """
         Initializes the classification model and parameters.
 
@@ -37,7 +37,7 @@ class AmazonReviewBinaryClassification:
             model_path (str): Path to the sentence transformer model.
             dataset_name (str): Name of the dataset to load.
             n_samples_dataset (int): Number of samples to use from the dataset.
-            ratio_train_val (float): Ratio of training samples to total samples.
+            train_ratio (float[]): Ratio of train, validation and test samples.
         """
         # Path to the sentence transformer model
         self.model_path = model_path
@@ -57,9 +57,9 @@ class AmazonReviewBinaryClassification:
         self.corpus_embeddings = None
         
         # Ratio of training samples to total samples
-        self.ratio_train_val = ratio_train_val
+        self.train_ratio = train_ratio
 
-    def load_data(self, split):
+    def load_data(self):
         """
         Loads and prepares the data from the specified dataset split.
 
@@ -67,24 +67,47 @@ class AmazonReviewBinaryClassification:
             split (str): The dataset split to load (e.g., 'train', 'test').
         """
         # Load the dataset split (e.g., 'train', 'test')
-        dataset = load_dataset(self.dataset_name, split=split)
-        
-        # Limit the number of samples for faster processing if specified
+        # Also limits to n_samples_dataset if provided
         if self.n_samples_dataset:
-            dataset = dataset[:self.n_samples_dataset]
-        
+            dataset = load_dataset(self.dataset_name,
+                                   split=f'train[:{self.n_samples_dataset}]')
+        else:
+            dataset = load_dataset(self.dataset_name,
+                                   split=f'train')
+
+        ## TODO: get all splits, not only 'train', merge them into a single
+        ## dataset object: for that check all features are identical, and
+        ## append to each feature all the elements of each split
+        # dataset = load_dataset(self.dataset_name)
+
         # Shuffle the dataset to ensure randomness
         shuffled_dataset = dataset.shuffle(seed=42)
+        ## Determine train, test, val proportions vs dataset len
+        train_size = int(self.train_ratio[0]*len(shuffled_dataset))
+        val_size = int(self.train_ratio[1]*len(shuffled_dataset))
+        test_size = int(self.train_ratio[2]*len(shuffled_dataset))
         
         # Extract the review texts and labels from the dataset
-        self.corpus = shuffled_dataset['content']
-        self.corpus_labels = shuffled_dataset['label']
+        self.train_corpus = shuffled_dataset['content'][:train_size]
+        self.train_corpus_labels = shuffled_dataset['label'][:train_size]
+
+        self.val_corpus = shuffled_dataset['content']\
+            [train_size:train_size+val_size]
+        self.val_corpus_labels = shuffled_dataset['label']\
+            [train_size:train_size+val_size]
+
+        self.test_corpus = shuffled_dataset['content']\
+            [train_size+val_size:train_size+val_size+test_size]
+        self.test_corpus_labels = shuffled_dataset['label']\
+            [train_size+val_size:train_size+val_size+test_size]
         
         # Encode the review texts into embeddings using the sentence transformer model
-        self.corpus_embeddings = self.model.encode(self.corpus)
-        
+        self.train_corpus_embeddings = self.model.encode(self.train_corpus)
+        self.val_corpus_embeddings = self.model.encode(self.val_corpus)
+        self.test_corpus_embeddings = self.model.encode(self.test_corpus)
+
         # Store the size of the embeddings for later use
-        self.embed_size = self.corpus_embeddings.shape[1]
+        self.embed_size = self.train_corpus_embeddings.shape[1]
 
     def save_data(self, file_path):
         """
@@ -94,14 +117,32 @@ class AmazonReviewBinaryClassification:
             file_path (str): Base file path to save embeddings and labels.
         """
         # Convert the corpus embeddings to a PyTorch tensor
-        tensor = self.to_torch_tensor(self.corpus_embeddings)
+        tensor = self.to_torch_tensor(self.train_corpus_embeddings)
         # Save the tensor containing the embeddings to a file
-        torch.save(tensor, file_path + "_embeds.pt")
+        torch.save(tensor, file_path + "_embeds_train.pt")
         # Convert the corpus labels to a PyTorch tensor
-        tensor = self.to_torch_tensor(self.corpus_labels)
+        tensor = self.to_torch_tensor(self.train_corpus_labels)
         # Save the tensor containing the labels to a file
-        torch.save(tensor, file_path + "_labels.pt")
+        torch.save(tensor, file_path + "_labels_train.pt")
 
+        # Convert the corpus embeddings to a PyTorch tensor
+        tensor = self.to_torch_tensor(self.val_corpus_embeddings)
+        # Save the tensor containing the embeddings to a file
+        torch.save(tensor, file_path + "_embeds_val.pt")
+        # Convert the corpus labels to a PyTorch tensor
+        tensor = self.to_torch_tensor(self.val_corpus_labels)
+        # Save the tensor containing the labels to a file
+        torch.save(tensor, file_path + "_labels_val.pt")
+
+        # Convert the corpus embeddings to a PyTorch tensor
+        tensor = self.to_torch_tensor(self.test_corpus_embeddings)
+        # Save the tensor containing the embeddings to a file
+        torch.save(tensor, file_path + "_embeds_test.pt")
+        # Convert the corpus labels to a PyTorch tensor
+        tensor = self.to_torch_tensor(self.test_corpus_labels)
+        # Save the tensor containing the labels to a file
+        torch.save(tensor, file_path + "_labels_test.pt")
+        
     @staticmethod
     def to_torch_tensor(data):
         """
@@ -127,14 +168,16 @@ class AmazonReviewBinaryClassification:
             tuple: KMeans object and a dictionary of cluster centers.
         """
         # Perform KMeans clustering on the corpus embeddings
-        kmeans = KMeans(n_clusters=n_clusters, random_state=random_state).fit(self.corpus_embeddings)
+        kmeans = KMeans(n_clusters=n_clusters, random_state=random_state)\
+            .fit(self.train_corpus_embeddings)
         
         # Get the distribution of cluster labels
         cls_dist = pd.Series(kmeans.labels_).value_counts()
         print(cls_dist)
 
         # Calculate distances between cluster centers and embeddings
-        distances = scipy.spatial.distance.cdist(kmeans.cluster_centers_, self.corpus_embeddings)
+        distances = scipy.spatial.distance.cdist(kmeans.cluster_centers_,
+                                                 self.train_corpus_embeddings)
         
         # Dictionary to store the index of the closest example to each cluster center
         centers = {}
@@ -146,7 +189,7 @@ class AmazonReviewBinaryClassification:
             ind = np.argsort(d, axis=0)[0]
             centers[i] = ind
             # Print cluster information
-            print(i, cls_dist[i], ind, self.corpus[ind], sep="\t\t")
+            print(i, cls_dist[i], ind, self.train_corpus[ind], sep="\t\t")
 
         # Return the KMeans object and the dictionary of cluster centers
         return kmeans, centers
@@ -161,7 +204,8 @@ class AmazonReviewBinaryClassification:
             output_file (str): Path to save the cluster visualization.
         """
         # Reduce the dimensionality of the corpus embeddings to 2D using UMAP
-        X = umap.UMAP(n_components=2, min_dist=0.0).fit_transform(self.corpus_embeddings)
+        X = umap.UMAP(n_components=2, min_dist=0.0)\
+                .fit_transform(self.train_corpus_embeddings)
         
         # Get the cluster labels from the KMeans object
         labels = kmeans.labels_
@@ -189,10 +233,11 @@ class AmazonReviewBinaryClassification:
 
 if __name__ == "__main__":
     # Initialize the classifier with a subset of the dataset
-    classifier = AmazonReviewBinaryClassification(n_samples_dataset=10000)
+    classifier = AmazonReviewBinaryClassification(n_samples_dataset=1000)
+    # classifier = AmazonReviewBinaryClassification()
     
     # Load the training data
-    classifier.load_data(split="train")
+    classifier.load_data()
     
     # Save the embeddings and labels to disk
     classifier.save_data("corpus")
@@ -218,15 +263,22 @@ if __name__ == "__main__":
     ffnn_trainer = SimpleFFNNTrainer(ffnn, criterion, optimizer, device='cpu')
 
     # Convert the embeddings and labels to PyTorch tensors
-    input_tensor = classifier.to_torch_tensor(classifier.corpus_embeddings)
-    output_tensor = classifier.to_torch_tensor(classifier.corpus_labels)
+    train_input_tensor = classifier.to_torch_tensor(classifier.train_corpus_embeddings)
+    train_output_tensor = classifier.to_torch_tensor(classifier.train_corpus_labels)
+    val_input_tensor = classifier.to_torch_tensor(classifier.val_corpus_embeddings)
+    val_output_tensor = classifier.to_torch_tensor(classifier.val_corpus_labels)
     
     # Reshape the output tensor to match the expected dimensions
-    output_tensor = torch.reshape(output_tensor, (output_tensor.shape[0], 1))
+    train_output_tensor = torch.reshape(train_output_tensor,
+                                        (train_output_tensor.shape[0], 1))
+    val_output_tensor = torch.reshape(val_output_tensor,
+                                      (val_output_tensor.shape[0], 1))
 
     # Print the shapes of the input and output tensors for verification
-    print(f"input tensor shape: {input_tensor.shape}")
-    print(f"output tensor shape: {output_tensor.shape}")
+    print(f"Train input tensor shape: {train_input_tensor.shape}")
+    print(f"Train output tensor shape: {train_output_tensor.shape}")
+    print(f"Val input tensor shape: {val_input_tensor.shape}")
+    print(f"Val output tensor shape: {val_output_tensor.shape}")
 
     # Define a custom dataset class for loading inputs and targets
     class CustomDataset(Dataset):
@@ -254,11 +306,15 @@ if __name__ == "__main__":
             return input_data, target_data
 
     # Convert the output tensor to float for compatibility with the loss function
-    output_tensor = output_tensor.float()
+    train_output_tensor = train_output_tensor.float()
+    val_output_tensor = val_output_tensor.float()
     
     # Create a dataset and dataloader for batching the data
-    dataset = CustomDataset(input_tensor, output_tensor)
-    train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+    train_dataset = CustomDataset(train_input_tensor, train_output_tensor)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+
+    val_dataset = CustomDataset(val_input_tensor, val_output_tensor)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True)
 
     # Iterate over the batches and print the input and target data for each batch
     for batch_idx, (inputs, targets) in enumerate(train_loader):
@@ -269,4 +325,4 @@ if __name__ == "__main__":
         print(targets)
 
     # Train the neural network using the dataloader
-    ffnn_trainer.train(train_loader)
+    ffnn_trainer.train(train_loader, val_loader=val_loader)
