@@ -54,7 +54,7 @@ class SimpleFFNNTrainer:
 
         self.model.to(self.device)  # Put model on device to use
 
-    def train(self, train_loader, val_loader=None, epochs=10, log_interval=1):
+    def train(self, train_loader, verbose=False, val_loader=None, epochs=10, log_interval=1):
         """
         Trains the model using the provided training and validation loaders.
 
@@ -91,7 +91,7 @@ class SimpleFFNNTrainer:
 
                 running_loss += loss.item()
 
-                if batch_idx % log_interval == 0:
+                if verbose and batch_idx % log_interval == 0:
                     print(f'Epoch [{epoch + 1}/{epochs}], '
                           f'Step [{batch_idx}/{len(train_loader)}], '
                           f'Loss: {loss.item():.4f}')
@@ -106,30 +106,37 @@ class SimpleFFNNTrainer:
 
         print("################ TRAINING ENDED ################ ")
 
-    def evaluate(self, val_loader):
+    def evaluate(self, data_loader, return_outputs=False):
         """
-        Evaluates the model on the validation loader.
+        Evaluates the model on the given data loader.
 
         Args:
-            val_loader (torch.utils.data.DataLoader): DataLoader for the validation dataset.
+            data_loader (torch.utils.data.DataLoader): DataLoader dataset.
 
         Returns:
-            float: The average validation loss over all batches.
+            float: The average loss over all batches of the given DataLoader.
         """
         self.model.eval()
-        val_loss = 0.0
+        data_loss = 0.0
 
+        if return_outputs:
+            all_outputs = []
         with torch.no_grad():  # No gradient calculation during evaluation
-            for inputs, targets in val_loader:
+            for inputs, targets in data_loader:
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                 # Forward pass
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
-                val_loss += loss.item()
+                data_loss += loss.item()
 
-        avg_val_loss = val_loss / len(val_loader)
-        return avg_val_loss
+                if return_outputs:
+                    all_outputs.append(outputs)
+                
+        avg_data_loss = data_loss / len(data_loader)
+        if return_outputs:
+            return avg_data_loss, torch.cat(tuple(all_outputs))
+        return avg_data_loss
 
     def save_model(self, filepath):
         """

@@ -169,7 +169,7 @@ class AmazonReviewBinaryClassification:
         """
         # Perform KMeans clustering on the corpus embeddings
         kmeans = KMeans(n_clusters=n_clusters, random_state=random_state)\
-            .fit(self.train_corpus_embeddings)
+            .fit(self.test_corpus_embeddings)
         
         # Get the distribution of cluster labels
         cls_dist = pd.Series(kmeans.labels_).value_counts()
@@ -177,7 +177,7 @@ class AmazonReviewBinaryClassification:
 
         # Calculate distances between cluster centers and embeddings
         distances = scipy.spatial.distance.cdist(kmeans.cluster_centers_,
-                                                 self.train_corpus_embeddings)
+                                                 self.test_corpus_embeddings)
         
         # Dictionary to store the index of the closest example to each cluster center
         centers = {}
@@ -189,12 +189,12 @@ class AmazonReviewBinaryClassification:
             ind = np.argsort(d, axis=0)[0]
             centers[i] = ind
             # Print cluster information
-            print(i, cls_dist[i], ind, self.train_corpus[ind], sep="\t\t")
+            print(i, cls_dist[i], ind, self.test_corpus[ind], sep="\t\t")
 
         # Return the KMeans object and the dictionary of cluster centers
         return kmeans, centers
 
-    def visualize_clusters(self, kmeans, centers, output_file="cluster_visualization.png"):
+    def visualize_clusters(self, labels, centers=[], output_file="cluster_visualization.png"):
         """
         Visualizes the clusters using UMAP and saves the plot to a file.
 
@@ -204,12 +204,12 @@ class AmazonReviewBinaryClassification:
             output_file (str): Path to save the cluster visualization.
         """
         # Reduce the dimensionality of the corpus embeddings to 2D using UMAP
-        X = umap.UMAP(n_components=2, min_dist=0.0)\
-                .fit_transform(self.train_corpus_embeddings)
+        X = umap.UMAP(n_components=2, min_dist=0.0, random_state=42)\
+                .fit_transform(self.test_corpus_embeddings)
         
         # Get the cluster labels from the KMeans object
-        labels = kmeans.labels_
-        print(labels)
+        # labels = kmeans.labels_
+        # print(labels)
         
         # Create a new figure for the plot
         fig, ax = plt.subplots(figsize=(12, 12))
@@ -232,6 +232,12 @@ class AmazonReviewBinaryClassification:
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Amazon Review Binary Classification')
+    parser.add_argument('--verbose', '-v', action='store_true')
+    args = parser.parse_args()
+
     # Initialize the classifier with a subset of the dataset
     classifier = AmazonReviewBinaryClassification(n_samples_dataset=10000)
     # classifier = AmazonReviewBinaryClassification()
@@ -246,7 +252,8 @@ if __name__ == "__main__":
     kmeans, centers = classifier.cluster_data()
     
     # Visualize the clusters and save the plot
-    classifier.visualize_clusters(kmeans, centers)
+    classifier.visualize_clusters(kmeans.labels_, centers=centers,
+                                  output_file="kmeans_classification.png")
 
     # Define the input size based on the embedding size and output size for binary classification
     input_size = classifier.embed_size
@@ -267,22 +274,30 @@ if __name__ == "__main__":
     train_output_tensor = classifier.to_torch_tensor(classifier.train_corpus_labels)
     val_input_tensor = classifier.to_torch_tensor(classifier.val_corpus_embeddings)
     val_output_tensor = classifier.to_torch_tensor(classifier.val_corpus_labels)
+    test_input_tensor = classifier.to_torch_tensor(classifier.test_corpus_embeddings)
+    test_output_tensor = classifier.to_torch_tensor(classifier.test_corpus_labels)
     
     # Reshape the output tensor to match the expected dimensions
     train_output_tensor = torch.reshape(train_output_tensor,
                                         (train_output_tensor.shape[0], 1))
     val_output_tensor = torch.reshape(val_output_tensor,
                                       (val_output_tensor.shape[0], 1))
+    test_output_tensor = torch.reshape(test_output_tensor,
+                                      (test_output_tensor.shape[0], 1))
 
-    # Print the shapes of the input and output tensors for verification
-    print(f"Train input tensor shape: {train_input_tensor.shape}")
-    print(f"Train output tensor shape: {train_output_tensor.shape}")
-    print(f"Val input tensor shape: {val_input_tensor.shape}")
-    print(f"Val output tensor shape: {val_output_tensor.shape}") 
+    if args.verbose:
+        # Print the shapes of the input and output tensors for verification
+        print(f"Train input tensor shape: {train_input_tensor.shape}")
+        print(f"Train output tensor shape: {train_output_tensor.shape}")
+        print(f"Val input tensor shape: {val_input_tensor.shape}")
+        print(f"Val output tensor shape: {val_output_tensor.shape}") 
+        print(f"Test input tensor shape: {test_input_tensor.shape}")
+        print(f"Test output tensor shape: {test_output_tensor.shape}") 
 
     # Convert the output tensor to float for compatibility with the loss function
     train_output_tensor = train_output_tensor.float()
     val_output_tensor = val_output_tensor.float()
+    test_output_tensor = test_output_tensor.float()
     
     # Create a dataset and dataloader for batching the data
     train_dataset = list(zip(train_input_tensor, train_output_tensor))
@@ -291,13 +306,25 @@ if __name__ == "__main__":
     val_dataset = list(zip(val_input_tensor, val_output_tensor))
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True)
 
-    # Iterate over the batches and print the input and target data for each batch
-    for batch_idx, (inputs, targets) in enumerate(train_loader):
-        print(f"##### BATCH #{batch_idx} #####")
-        print("Input data (sentence embedding):")
-        print(inputs)
-        print("Target data (label):")
-        print(targets)
+    test_dataset = list(zip(test_input_tensor, test_output_tensor))
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=True)
+
+    if args.verbose:
+        # Iterate over the batches and print the input and target data for each batch
+        for batch_idx, (inputs, targets) in enumerate(train_loader):
+            print(f"##### BATCH #{batch_idx} #####")
+            print("Input data (sentence embedding):")
+            print(inputs)
+            print("Target data (label):")
+            print(targets)
 
     # Train the neural network using the dataloader
-    ffnn_trainer.train(train_loader, val_loader=val_loader)
+    ffnn_trainer.train(train_loader, verbose=args.verbose, val_loader=val_loader)
+
+    # If a test set is given, evaluate the model on it
+    if test_loader is not None:
+        test_loss, labels = ffnn_trainer.evaluate(test_loader, return_outputs=True)
+        print(f'Test Loss after Training : {test_loss:.4f}')
+
+        # Visualize the clusters and save the plot
+        classifier.visualize_clusters(labels, output_file="ffnn_classification.png")
