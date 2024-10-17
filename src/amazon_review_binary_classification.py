@@ -116,32 +116,26 @@ class AmazonReviewBinaryClassification:
         Args:
             file_path (str): Base file path to save embeddings and labels.
         """
-        # Convert the corpus embeddings to a PyTorch tensor
-        tensor = self.to_torch_tensor(self.train_corpus_embeddings)
-        # Save the tensor containing the embeddings to a file
-        torch.save(tensor, file_path + "_embeds_train.pt")
-        # Convert the corpus labels to a PyTorch tensor
-        tensor = self.to_torch_tensor(self.train_corpus_labels)
-        # Save the tensor containing the labels to a file
-        torch.save(tensor, file_path + "_labels_train.pt")
+        def save_split_data(embeddings, labels, split_name):
+            """
+            Saves the embeddings and labels for a specific split to disk.
 
-        # Convert the corpus embeddings to a PyTorch tensor
-        tensor = self.to_torch_tensor(self.val_corpus_embeddings)
-        # Save the tensor containing the embeddings to a file
-        torch.save(tensor, file_path + "_embeds_val.pt")
-        # Convert the corpus labels to a PyTorch tensor
-        tensor = self.to_torch_tensor(self.val_corpus_labels)
-        # Save the tensor containing the labels to a file
-        torch.save(tensor, file_path + "_labels_val.pt")
+            Args:
+            embeddings (numpy.ndarray): The embeddings to save.
+            labels (numpy.ndarray): The labels to save.
+            split_name (str): The name of the split (e.g., 'train', 'val', 'test').
+            """
+            # Convert the embeddings to a PyTorch tensor and save to file
+            tensor = self.to_torch_tensor(embeddings)
+            torch.save(tensor, f"{file_path}_embeds_{split_name}.pt")
+            # Convert the labels to a PyTorch tensor and save to file
+            tensor = self.to_torch_tensor(labels)
+            torch.save(tensor, f"{file_path}_labels_{split_name}.pt")
 
-        # Convert the corpus embeddings to a PyTorch tensor
-        tensor = self.to_torch_tensor(self.test_corpus_embeddings)
-        # Save the tensor containing the embeddings to a file
-        torch.save(tensor, file_path + "_embeds_test.pt")
-        # Convert the corpus labels to a PyTorch tensor
-        tensor = self.to_torch_tensor(self.test_corpus_labels)
-        # Save the tensor containing the labels to a file
-        torch.save(tensor, file_path + "_labels_test.pt")
+        # Save the train, validation, and test data
+        save_split_data(self.train_corpus_embeddings, self.train_corpus_labels, "train")
+        save_split_data(self.val_corpus_embeddings, self.val_corpus_labels, "val")
+        save_split_data(self.test_corpus_embeddings, self.test_corpus_labels, "test")
         
     @staticmethod
     def to_torch_tensor(data):
@@ -155,6 +149,17 @@ class AmazonReviewBinaryClassification:
             torch.Tensor: The converted tensor.
         """
         return torch.tensor(data)
+
+    def cluster_and_visualize_kmeans(self):
+        """
+        Clusters and visualizes the data using KMeans.
+        """
+        # Cluster the data using KMeans
+        kmeans, centers = self.cluster_data()
+            
+        # Visualize the clusters and save the plot
+        self.visualize_data(kmeans.labels_, centers=centers, 
+                                             output_file="kmeans_classification.png")
 
     def cluster_data(self, n_clusters=2, random_state=0):
         """
@@ -194,9 +199,9 @@ class AmazonReviewBinaryClassification:
         # Return the KMeans object and the dictionary of cluster centers
         return kmeans, centers
 
-    def visualize_clusters(self, labels, centers=[], output_file="cluster_visualization.png"):
+    def visualize_data(self, labels, centers=[], output_file="cluster_visualization.png"):
         """
-        Visualizes the clusters using UMAP and saves the plot to a file.
+        Visualizes the embeddings and labels using UMAP and saves the plot to a file.
 
         Args:
             kmeans: KMeans object containing the cluster information.
@@ -230,6 +235,67 @@ class AmazonReviewBinaryClassification:
         # Close the plot to free up memory
         plt.close()
 
+    def train_ffnn_classifier(self, layers=[10, 10], verbose=False):
+        """
+        Trains and evaluates the FFNN classifier.
+
+        Args:
+            verbose (bool): If True, prints additional information during training.
+        """
+        # Define the input size based on the embedding size and output size for binary classification
+        input_size = self.embed_size
+        output_size = 1  # Binary classification
+        
+        # Initialize the simple feed-forward neural network
+        ffnn = SimpleFFNN(input_size, layers, output_size)
+
+        # Define the loss function and optimizer for training
+        criterion = nn.BCELoss()
+        optimizer = optim.Adam(ffnn.parameters(), lr=0.001)
+
+        # Initialize the trainer for the neural network
+        ffnn_trainer = SimpleFFNNTrainer(ffnn, criterion, optimizer, device='cpu')
+
+        def create_dataloader(embeddings, labels, name_set="", batch_size=32, verbose=False):
+            """
+            Converts embeddings and labels to PyTorch tensors and reshapes the labels.
+
+            Args:
+            embeddings (numpy.ndarray): The embeddings to convert.
+            labels (numpy.ndarray): The labels to convert.
+            verbose (bool): If True, prints additional information during preparation.
+
+            Returns:
+            tuple: A tuple containing the input tensor and reshaped output tensor.
+            """
+            input_tensor = self.to_torch_tensor(embeddings)
+            output_tensor = self.to_torch_tensor(labels)
+            output_tensor = torch.reshape(output_tensor, (output_tensor.shape[0], 1))
+            
+            if verbose:
+                print(f"{name_set} input tensor shape: {input_tensor.shape}")
+                print(f"{name_set} output tensor shape: {output_tensor.shape}")
+            
+            # Create a dataset and dataloader for batching the data
+            dataset = list(zip(input_tensor, output_tensor.float()))
+            return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+        # Prepare the Dataloader data for train, validation, and test sets
+        train_loader = create_dataloader(self.train_corpus_embeddings, self.train_corpus_labels, name_set="train", verbose=verbose)
+        val_loader = create_dataloader(self.val_corpus_embeddings, self.val_corpus_labels, name_set="val", verbose=verbose)
+        test_loader = create_dataloader(self.test_corpus_embeddings, self.test_corpus_labels, name_set="test", verbose=verbose)
+
+        # Train the neural network using the dataloader
+        ffnn_trainer.train(train_loader, verbose=verbose, val_loader=val_loader)
+
+        # If a test set is given, evaluate the model on it
+        if test_loader is not None:
+            test_loss, labels = ffnn_trainer.evaluate(test_loader, return_outputs=True)
+            print(f'Test Loss after Training : {test_loss:.4f}')
+
+            # Visualize the clusters and save the plot
+            self.visualize_data(labels, output_file="ffnn_classification.png")
+
 
 if __name__ == "__main__":
     import argparse
@@ -239,7 +305,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Initialize the classifier with a subset of the dataset
-    classifier = AmazonReviewBinaryClassification(n_samples_dataset=10000)
+    classifier = AmazonReviewBinaryClassification(n_samples_dataset=100)
     # classifier = AmazonReviewBinaryClassification()
     
     # Load the training data
@@ -248,83 +314,8 @@ if __name__ == "__main__":
     # Save the embeddings and labels to disk
     classifier.save_data("corpus")
 
-    # Cluster the data using KMeans
-    kmeans, centers = classifier.cluster_data()
-    
-    # Visualize the clusters and save the plot
-    classifier.visualize_clusters(kmeans.labels_, centers=centers,
-                                  output_file="kmeans_classification.png")
+    # Cluster and visualize the data using KMeans
+    classifier.cluster_and_visualize_kmeans()
 
-    # Define the input size based on the embedding size and output size for binary classification
-    input_size = classifier.embed_size
-    output_size = 1  # Binary classification
-    
-    # Initialize the simple feed-forward neural network
-    ffnn = SimpleFFNN(input_size, [10, 10], output_size)
-
-    # Define the loss function and optimizer for training
-    criterion = nn.BCELoss()
-    optimizer = optim.Adam(ffnn.parameters(), lr=0.001)
-
-    # Initialize the trainer for the neural network
-    ffnn_trainer = SimpleFFNNTrainer(ffnn, criterion, optimizer, device='cpu')
-
-    # Convert the embeddings and labels to PyTorch tensors
-    train_input_tensor = classifier.to_torch_tensor(classifier.train_corpus_embeddings)
-    train_output_tensor = classifier.to_torch_tensor(classifier.train_corpus_labels)
-    val_input_tensor = classifier.to_torch_tensor(classifier.val_corpus_embeddings)
-    val_output_tensor = classifier.to_torch_tensor(classifier.val_corpus_labels)
-    test_input_tensor = classifier.to_torch_tensor(classifier.test_corpus_embeddings)
-    test_output_tensor = classifier.to_torch_tensor(classifier.test_corpus_labels)
-    
-    # Reshape the output tensor to match the expected dimensions
-    train_output_tensor = torch.reshape(train_output_tensor,
-                                        (train_output_tensor.shape[0], 1))
-    val_output_tensor = torch.reshape(val_output_tensor,
-                                      (val_output_tensor.shape[0], 1))
-    test_output_tensor = torch.reshape(test_output_tensor,
-                                      (test_output_tensor.shape[0], 1))
-
-    if args.verbose:
-        # Print the shapes of the input and output tensors for verification
-        print(f"Train input tensor shape: {train_input_tensor.shape}")
-        print(f"Train output tensor shape: {train_output_tensor.shape}")
-        print(f"Val input tensor shape: {val_input_tensor.shape}")
-        print(f"Val output tensor shape: {val_output_tensor.shape}") 
-        print(f"Test input tensor shape: {test_input_tensor.shape}")
-        print(f"Test output tensor shape: {test_output_tensor.shape}") 
-
-    # Convert the output tensor to float for compatibility with the loss function
-    train_output_tensor = train_output_tensor.float()
-    val_output_tensor = val_output_tensor.float()
-    test_output_tensor = test_output_tensor.float()
-    
-    # Create a dataset and dataloader for batching the data
-    train_dataset = list(zip(train_input_tensor, train_output_tensor))
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-
-    val_dataset = list(zip(val_input_tensor, val_output_tensor))
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True)
-
-    test_dataset = list(zip(test_input_tensor, test_output_tensor))
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=True)
-
-    if args.verbose:
-        # Iterate over the batches and print the input and target data for each batch
-        for batch_idx, (inputs, targets) in enumerate(train_loader):
-            print(f"##### BATCH #{batch_idx} #####")
-            print("Input data (sentence embedding):")
-            print(inputs)
-            print("Target data (label):")
-            print(targets)
-
-    # Train the neural network using the dataloader
-    ffnn_trainer.train(train_loader, verbose=args.verbose, val_loader=val_loader)
-
-    # If a test set is given, evaluate the model on it
-    if test_loader is not None:
-        test_loss, labels = ffnn_trainer.evaluate(test_loader, return_outputs=True)
-        print(f'Test Loss after Training : {test_loss:.4f}')
-
-        # Visualize the clusters and save the plot
-        classifier.visualize_clusters(labels, output_file="ffnn_classification.png")
+    # Train and evaluate the FFNN classifier
+    classifier.train_ffnn_classifier(layers=[10, 10], verbose=args.verbose)
