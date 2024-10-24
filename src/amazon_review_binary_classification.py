@@ -29,7 +29,7 @@ class AmazonReviewBinaryClassification:
         embed_size (int): Size of the embeddings.
     """
 
-    def __init__(self, model_path="sentence-transformers/all-MiniLM-L6-v2", dataset_name="amazon_polarity", train_ratio=[0.85,0.05,0.1], n_samples_dataset=None):
+    def __init__(self, model_path="sentence-transformers/all-MiniLM-L6-v2", dataset_name="amazon_polarity", batch_size=32, train_ratio=[0.85,0.05,0.1], n_samples_dataset=None):
         """
         Initializes the classification model and parameters.
 
@@ -55,11 +55,14 @@ class AmazonReviewBinaryClassification:
         self.corpus = None
         self.corpus_labels = None
         self.corpus_embeddings = None
-        
+
         # Ratio of training samples to total samples
         self.train_ratio = train_ratio
 
-    def load_data(self):
+        # Batch size for training
+        self.batch_size = batch_size
+        
+    def load_data(self, verbose=False):
         """
         Loads and prepares the data from the specified dataset split.
 
@@ -109,6 +112,45 @@ class AmazonReviewBinaryClassification:
         # Store the size of the embeddings for later use
         self.embed_size = self.train_corpus_embeddings.shape[1]
 
+        
+        # Prepare the Dataloader data for train, validation, and test sets
+        self.train_loader = self.create_dataloader(self.train_corpus_embeddings,
+                                                   self.train_corpus_labels,
+                                                   name_set="train",
+                                                   verbose=verbose)
+        self.val_loader = self.create_dataloader(self.val_corpus_embeddings,
+                                                 self.val_corpus_labels,
+                                                 name_set="val",
+                                                 verbose=verbose)
+        self.test_loader = self.create_dataloader(self.test_corpus_embeddings,
+                                                  self.test_corpus_labels,
+                                                  name_set="test",
+                                                  verbose=verbose)
+
+    def create_dataloader(self, embeddings, labels, name_set="", verbose=False):
+        """
+        Converts embeddings and labels to PyTorch tensors and reshapes the labels.
+
+        Args:
+        embeddings (numpy.ndarray): The embeddings to convert.
+        labels (numpy.ndarray): The labels to convert.
+        verbose (bool): If True, prints additional information during preparation.
+
+        Returns:
+        tuple: A tuple containing the input tensor and reshaped output tensor.
+        """
+        input_tensor = self.to_torch_tensor(embeddings)
+        output_tensor = self.to_torch_tensor(labels)
+        output_tensor = torch.reshape(output_tensor, (output_tensor.shape[0], 1))
+
+        if verbose:
+            print(f"{name_set} input tensor shape: {input_tensor.shape}")
+            print(f"{name_set} output tensor shape: {output_tensor.shape}")
+
+        # Create a dataset and dataloader for batching the data
+        dataset = list(zip(input_tensor, output_tensor.float()))
+        return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        
     def save_data(self, file_path):
         """
         Saves the corpus embeddings and labels to disk.
@@ -235,7 +277,7 @@ class AmazonReviewBinaryClassification:
         # Close the plot to free up memory
         plt.close()
 
-    def train_ffnn_classifier(self, layers=[10, 10], verbose=False):
+    def train_ffnn_classifier(self, layers=[10, 10], epochs=10, verbose=False):
         """
         Trains and evaluates the FFNN classifier.
 
@@ -253,47 +295,26 @@ class AmazonReviewBinaryClassification:
         criterion = nn.BCELoss()
         optimizer = optim.Adam(ffnn.parameters(), lr=0.001)
 
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using {device} for training")
+
         # Initialize the trainer for the neural network
-        ffnn_trainer = SimpleFFNNTrainer(ffnn, criterion, optimizer, device='cpu')
-
-        def create_dataloader(embeddings, labels, name_set="", batch_size=32, verbose=False):
-            """
-            Converts embeddings and labels to PyTorch tensors and reshapes the labels.
-
-            Args:
-            embeddings (numpy.ndarray): The embeddings to convert.
-            labels (numpy.ndarray): The labels to convert.
-            verbose (bool): If True, prints additional information during preparation.
-
-            Returns:
-            tuple: A tuple containing the input tensor and reshaped output tensor.
-            """
-            input_tensor = self.to_torch_tensor(embeddings)
-            output_tensor = self.to_torch_tensor(labels)
-            output_tensor = torch.reshape(output_tensor, (output_tensor.shape[0], 1))
-            
-            if verbose:
-                print(f"{name_set} input tensor shape: {input_tensor.shape}")
-                print(f"{name_set} output tensor shape: {output_tensor.shape}")
-            
-            # Create a dataset and dataloader for batching the data
-            dataset = list(zip(input_tensor, output_tensor.float()))
-            return DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-        # Prepare the Dataloader data for train, validation, and test sets
-        train_loader = create_dataloader(self.train_corpus_embeddings, self.train_corpus_labels, name_set="train", verbose=verbose)
-        val_loader = create_dataloader(self.val_corpus_embeddings, self.val_corpus_labels, name_set="val", verbose=verbose)
-        test_loader = create_dataloader(self.test_corpus_embeddings, self.test_corpus_labels, name_set="test", verbose=verbose)
+        ffnn_trainer = SimpleFFNNTrainer(ffnn, criterion, optimizer, device=device)
 
         # Train the neural network using the dataloader
-        ffnn_trainer.train(train_loader, verbose=verbose, val_loader=val_loader)
+        ffnn_trainer.train(self.train_loader, verbose=verbose,
+                           val_loader=self.val_loader, epochs=epochs)
+
+        # ffnn_trainer.model.to('cpu')
 
         # If a test set is given, evaluate the model on it
-        if test_loader is not None:
-            test_loss, labels = ffnn_trainer.evaluate(test_loader, return_outputs=True)
+        if self.test_loader is not None:
+            test_loss, labels = ffnn_trainer.evaluate(self.test_loader,
+                                                      return_outputs=True)
             print(f'Test Loss after Training : {test_loss:.4f}')
             
-            labels = labels.numpy()
+            labels = labels.cpu().numpy()
             labels[labels>=0.5] = 1
             labels[labels<0.5] = 0
             
@@ -302,7 +323,7 @@ class AmazonReviewBinaryClassification:
         
         return ffnn, ffnn_trainer
 
-    def evaluate_ffnn_classifier(self, ffnn, data_loader):
+    def evaluate_ffnn_classifier(self, ffnn_trainer, data_loader):
         """
         Evaluates the FFNN classifier and measures precision, recall, and F1 score.
 
@@ -321,6 +342,7 @@ class AmazonReviewBinaryClassification:
         
         # Convert outputs to binary predictions
         predictions = (outputs > 0.5).float()
+        predictions = predictions.cpu()
         
         # Extract true labels from the data_loader
         true_labels = torch.cat([labels for _, labels in data_loader], dim=0)
@@ -356,23 +378,42 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Amazon Review Binary Classification')
     parser.add_argument('--verbose', '-v', action='store_true')
+    parser.add_argument('--use-gpu', action='store_true')
+    parser.add_argument('--compute-kmeans', action='store_true')
+    parser.add_argument('--ffnn-arch', nargs='+', type=int, default=[10,10])
+    parser.add_argument('--n-samples-dataset', type=int, default=1000)
+    parser.add_argument('--n-epochs', type=int, default=10)
+    parser.add_argument('--batch-size', type=int, default=32)
+    
     args = parser.parse_args()
 
     # Initialize the classifier with a subset of the dataset
-    classifier = AmazonReviewBinaryClassification(n_samples_dataset=100)
-    # classifier = AmazonReviewBinaryClassification()
+    classifier = AmazonReviewBinaryClassification(n_samples_dataset=args.n_samples_dataset,
+                                                  batch_size=args.batch_size)
     
     # Load the training data
-    classifier.load_data()
+    classifier.load_data(verbose=args.verbose)
     
     # Save the embeddings and labels to disk
     classifier.save_data("corpus")
 
-    # Cluster and visualize the data using KMeans
-    classifier.cluster_and_visualize_kmeans()
+    if args.compute_kmeans:
+        # Cluster and visualize the data using KMeans
+        classifier.cluster_and_visualize_kmeans()
 
     # Train and evaluate the FFNN classifier
-    ffnn, ffnn_trainer = classifier.train_ffnn_classifier(layers=[10, 10], verbose=args.verbose)
+    ffnn, ffnn_trainer = classifier.train_ffnn_classifier(layers=args.ffnn_arch,
+                                                          verbose=args.verbose,
+                                                          epochs=args.n_epochs)
     
-    # Evaluate the FFNN classifier on the test set
-    # TODO : test_loader and run evaluate_ffnn_classifier   
+    test_confusion_matrix = classifier.evaluate_ffnn_classifier(ffnn_trainer,
+                                                                classifier.test_loader)
+
+    print("#### TEST stats ####")
+    print(f"Precision\t= {test_confusion_matrix['precision']:.4f}")
+    print(f"Recall   \t= {test_confusion_matrix['recall']:.4f}")
+    train_confusion_matrix = classifier.evaluate_ffnn_classifier(ffnn_trainer,
+                                                                 classifier.train_loader)
+    print("#### TRAIN stats ####")
+    print(f"Precision\t= {train_confusion_matrix['precision']:.4f}")
+    print(f"Recall   \t= {train_confusion_matrix['recall']:.4f}")
