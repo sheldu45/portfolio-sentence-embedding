@@ -292,11 +292,65 @@ class AmazonReviewBinaryClassification:
         if test_loader is not None:
             test_loss, labels = ffnn_trainer.evaluate(test_loader, return_outputs=True)
             print(f'Test Loss after Training : {test_loss:.4f}')
-
+            
+            labels = labels.numpy()
+            labels[labels>=0.5] = 1
+            labels[labels<0.5] = 0
+            
             # Visualize the clusters and save the plot
             self.visualize_data(labels, output_file="ffnn_classification.png")
+        
+        return ffnn, ffnn_trainer
 
+    def evaluate_ffnn_classifier(self, ffnn, data_loader):
+        """
+        Evaluates the FFNN classifier and measures precision, recall, and F1 score.
 
+        Args:
+            data_loader (DataLoader): DataLoader for the dataset to evaluate.
+
+        Returns:
+            dict: Dictionary containing precision, recall, and F1 score.
+        """
+        # Define the input size based on the embedding size and output size for binary classification
+        input_size = self.embed_size
+        output_size = 1  # Binary classification
+
+        # Evaluate the model on the provided data_loader using the FFNNTrainer's evaluate function to get outputs 
+        test_loss, outputs = ffnn_trainer.evaluate(data_loader, return_outputs=True)
+        
+        # Convert outputs to binary predictions
+        predictions = (outputs > 0.5).float()
+        
+        # Extract true labels from the data_loader
+        true_labels = torch.cat([labels for _, labels in data_loader], dim=0)
+        
+        # Calculate confusion matrix components
+        true_positive = (predictions * true_labels).sum().item()
+        true_negative = ((1 - predictions) * (1 - true_labels)).sum().item()
+        false_positive = (predictions * (1 - true_labels)).sum().item()
+        false_negative = ((1 - predictions) * true_labels).sum().item()
+        
+        # Calculate precision and recall
+        precision = true_positive / (true_positive + false_positive) if (true_positive + false_positive) > 0 else 0
+        recall = true_positive / (true_positive + false_negative) if (true_positive + false_negative) > 0 else 0
+
+        # Calculate F1 score
+        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+        # Create confusion matrix with precision, recall, and F1 score
+        confusion_matrix = {
+            "true_positive": true_positive,
+            "true_negative": true_negative,
+            "false_positive": false_positive,
+            "false_negative": false_negative,
+            "precision": precision,
+            "recall": recall,
+            "f1_score": f1_score
+        }
+        
+        return confusion_matrix
+    
 if __name__ == "__main__":
     import argparse
 
@@ -318,4 +372,7 @@ if __name__ == "__main__":
     classifier.cluster_and_visualize_kmeans()
 
     # Train and evaluate the FFNN classifier
-    classifier.train_ffnn_classifier(layers=[10, 10], verbose=args.verbose)
+    ffnn, ffnn_trainer = classifier.train_ffnn_classifier(layers=[10, 10], verbose=args.verbose)
+    
+    # Evaluate the FFNN classifier on the test set
+    # TODO : test_loader and run evaluate_ffnn_classifier   
