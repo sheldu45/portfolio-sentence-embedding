@@ -320,7 +320,8 @@ class AmazonReviewBinaryClassification:
             
             # Visualize the clusters and save the plot
             self.visualize_data(labels, output_file="ffnn_classification.png")
-        
+            
+        self.visualize_data(self.test_corpus_labels, output_file="ground_truth.png")
         return ffnn, ffnn_trainer
 
     def evaluate_ffnn_classifier(self, ffnn_trainer, data_loader):
