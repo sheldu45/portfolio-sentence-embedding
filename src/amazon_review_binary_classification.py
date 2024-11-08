@@ -293,7 +293,7 @@ class AmazonReviewBinaryClassification:
 
         # Define the loss function and optimizer for training
         criterion = nn.BCELoss()
-        optimizer = optim.Adam(ffnn.parameters(), lr=0.0001)
+        optimizer = optim.Adam(ffnn.parameters(), lr=0.1)
 
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
