@@ -303,8 +303,10 @@ class AmazonReviewBinaryClassification:
         ffnn_trainer = SimpleFFNNTrainer(ffnn, criterion, optimizer, device=device)
 
         # Train the neural network using the dataloader
-        ffnn_trainer.train(self.train_loader, verbose=verbose,
-                           val_loader=self.val_loader, epochs=epochs)
+        ffnn_trainer.train(self.train_loader,
+                           val_loader=self.val_loader,
+                           epochs=epochs,
+                           verbose=verbose)
 
         # If a test set is given, evaluate the model on it
         if self.test_loader is not None:
@@ -424,3 +426,6 @@ if __name__ == "__main__":
     print(f"Precision\t= {train_confusion_matrix['precision']:.4f}")
     print(f"Recall   \t= {train_confusion_matrix['recall']:.4f}")
     print(f"Accuracy \t= {train_confusion_matrix['accuracy']:.4f}")
+
+    # Run with:
+    # python ../src/amazon_review_binary_classification.py --n-samples-dataset 1000 --ffnn-arch 10 10 --n-epochs 10

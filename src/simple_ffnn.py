@@ -48,19 +48,6 @@ class SimpleFFNN(nn.Module):
         # Assembling layers in a nn.Sequential torch object
         self.network = nn.Sequential(*layers)
 
-    def forward(self, x):
-        """
-        Defines the forward pass of the network.
-
-        Args:
-            x (torch.Tensor): Input tensor.
-
-        Returns:
-            torch.Tensor: Output tensor after passing through the network.
-        """
-        return self.network(x)
-
-
 if __name__ == '__main__':
     import argparse
 
