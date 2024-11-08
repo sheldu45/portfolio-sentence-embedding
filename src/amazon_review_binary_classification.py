@@ -420,3 +420,6 @@ if __name__ == "__main__":
     print("#### TRAIN stats ####")
     print(f"Precision\t= {train_confusion_matrix['precision']:.4f}")
     print(f"Recall   \t= {train_confusion_matrix['recall']:.4f}")
+
+    # Run with:
+    # python ../src/amazon_review_binary_classification.py --n-samples-dataset 1000 --ffnn-arch 10 10 --n-epochs 10
