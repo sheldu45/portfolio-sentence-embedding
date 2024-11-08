@@ -293,7 +293,7 @@ class AmazonReviewBinaryClassification:
 
         # Define the loss function and optimizer for training
         criterion = nn.BCELoss()
-        optimizer = optim.Adam(ffnn.parameters(), lr=0.001)
+        optimizer = optim.Adam(ffnn.parameters(), lr=0.0001)
 
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -306,22 +306,24 @@ class AmazonReviewBinaryClassification:
         ffnn_trainer.train(self.train_loader, verbose=verbose,
                            val_loader=self.val_loader, epochs=epochs)
 
-        # ffnn_trainer.model.to('cpu')
-
         # If a test set is given, evaluate the model on it
         if self.test_loader is not None:
             test_loss, labels = ffnn_trainer.evaluate(self.test_loader,
                                                       return_outputs=True)
             print(f'Test Loss after Training : {test_loss:.4f}')
-            
-            labels = labels.cpu().numpy()
-            labels[labels>=0.5] = 1
-            labels[labels<0.5] = 0
-            
+
+            # Convert outputs to binary predictions
+            labels = (labels > 0.5).float()
+            labels = labels.cpu()
+
             # Visualize the clusters and save the plot
             self.visualize_data(labels, output_file="ffnn_classification.png")
+
+            # Extract true labels from the data_loader
+            true_labels = torch.cat([labels for _, labels in self.test_loader], dim=0)
+
+            self.visualize_data(true_labels, output_file="ground_truth.png")
             
-        self.visualize_data(self.test_corpus_labels, output_file="ground_truth.png")
         return ffnn, ffnn_trainer
 
     def evaluate_ffnn_classifier(self, ffnn_trainer, data_loader):
@@ -357,6 +359,7 @@ class AmazonReviewBinaryClassification:
         # Calculate precision and recall
         precision = true_positive / (true_positive + false_positive) if (true_positive + false_positive) > 0 else 0
         recall = true_positive / (true_positive + false_negative) if (true_positive + false_negative) > 0 else 0
+        accuracy = (true_positive + true_negative) / (true_positive + true_negative + false_positive + false_negative) if (true_positive + true_negative + false_positive + false_negative) > 0 else 0
 
         # Calculate F1 score
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
@@ -369,6 +372,7 @@ class AmazonReviewBinaryClassification:
             "false_negative": false_negative,
             "precision": precision,
             "recall": recall,
+            "accuracy": accuracy,
             "f1_score": f1_score
         }
         
@@ -413,8 +417,10 @@ if __name__ == "__main__":
     print("#### TEST stats ####")
     print(f"Precision\t= {test_confusion_matrix['precision']:.4f}")
     print(f"Recall   \t= {test_confusion_matrix['recall']:.4f}")
+    print(f"Accuracy \t= {test_confusion_matrix['accuracy']:.4f}")
     train_confusion_matrix = classifier.evaluate_ffnn_classifier(ffnn_trainer,
                                                                  classifier.train_loader)
     print("#### TRAIN stats ####")
     print(f"Precision\t= {train_confusion_matrix['precision']:.4f}")
     print(f"Recall   \t= {train_confusion_matrix['recall']:.4f}")
+    print(f"Accuracy \t= {train_confusion_matrix['accuracy']:.4f}")

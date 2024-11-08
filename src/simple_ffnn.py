@@ -18,7 +18,7 @@ class SimpleFFNN(nn.Module):
         forward(x):
     """
 
-    def __init__(self, input_size, hidden_sizes, output_size):
+    def __init__(self, input_size, hidden_sizes, output_size, init_method='kaiming'):
         """
         Initializes the SimpleFFNN model.
 
@@ -36,6 +36,8 @@ class SimpleFFNN(nn.Module):
         # Iterating to create hidden layers
         for hidden_size in hidden_sizes:
             layers.append(nn.Linear(prev_size, hidden_size))
+            nn.init.kaiming_normal_(layers[-1].weight, nonlinearity='relu')
+            layers.append(nn.BatchNorm1d(hidden_size))
             layers.append(nn.ReLU())
             prev_size = hidden_size
 

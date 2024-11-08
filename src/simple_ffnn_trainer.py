@@ -68,10 +68,15 @@ class SimpleFFNNTrainer:
             None
         """
         print("################ TRAINING STARTED ################ ")
+        layers = [layer for layer in self.model.modules()
+                  if isinstance(layer, nn.Linear)]
+        running_grad = []
+        for _ in layers:
+            running_grad.append([0.0,0.0])
+
         for epoch in range(epochs):
             self.model.train()  # Put model in training mode
             running_loss = 0.0
-
             # Iterate over training mini-batches
             for batch_idx, (inputs, targets) in enumerate(train_loader):
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
@@ -84,7 +89,6 @@ class SimpleFFNNTrainer:
 
                 # Compute loss
                 loss = self.criterion(outputs, targets)
-
                 # Backward pass and weight updating
                 loss.backward()
                 self.optimizer.step()
@@ -95,14 +99,22 @@ class SimpleFFNNTrainer:
                     print(f'Epoch [{epoch + 1}/{epochs}], '
                           f'Step [{batch_idx}/{len(train_loader)}], '
                           f'Loss: {loss.item():.4f}')
+                ### Check gradients
+                for i in range(len(layers)):
+                    layer_grad = layers[i].weight.grad
+                    running_grad[i][0] += torch.mean(layer_grad)
+                    running_grad[i][1] += torch.std(layer_grad)
 
             avg_loss = running_loss / len(train_loader)
-            print(f'Epoch [{epoch + 1}/{epochs}], Average Loss: {avg_loss:.4f}')
-
+            print(f'\nEpoch [{epoch + 1}/{epochs}], Average Loss: {avg_loss:.4f}')
+                
             # If a validation set is given, evaluate the model on it
             if val_loader is not None:
                 val_loss = self.evaluate(val_loader)
                 print(f'Validation Loss after Epoch {epoch + 1}: {val_loss:.4f}')
+
+            for i in range(len(layers)):
+                print(f'Mean and std grad of layer {i}: {running_grad[i][0]/len(train_loader)}, {running_grad[i][1]/len(train_loader)}')
 
         print("################ TRAINING ENDED ################ ")
 
