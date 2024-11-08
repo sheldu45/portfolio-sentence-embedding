@@ -51,7 +51,6 @@ class SimpleFFNNTrainer:
         self.criterion = criterion  # Loss to use for training
         self.optimizer = optimizer  # Optimizer to use for training
         self.device = device  # Device to use for training
-
         self.model.to(self.device)  # Put model on device to use
 
     def train(self, train_loader, verbose=False, val_loader=None, epochs=10, log_interval=1):
