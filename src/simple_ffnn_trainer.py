@@ -85,6 +85,7 @@ class SimpleFFNNTrainer:
                 loss = self.criterion(outputs, targets)
 
                 # Backward pass and weight updating
+                # Explanation: https://stackoverflow.com/questions/53975717/pytorch-connection-between-loss-backward-and-optimizer-step
                 loss.backward()
                 self.optimizer.step()
 
